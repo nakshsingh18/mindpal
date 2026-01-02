@@ -1,0 +1,82 @@
+[
+  {
+    "letters": ["C", "A", "R", "E"],
+    "validWords": ["CARE", "RACE", "ACRE", "EAR", "ARC", "CAR"]
+  },
+  {
+    "letters": ["H", "O", "M", "E"],
+    "validWords": ["HOME", "OHM", "HOE", "HEM", "MEH"]
+  },
+  {
+    "letters": ["L", "A", "K", "E"],
+    "validWords": ["LAKE", "LEAK", "KALE", "ALE", "ELK"]
+  },
+  {
+    "letters": ["T", "R", "A", "P"],
+    "validWords": ["TRAP", "PART", "RAPT", "TARP", "ART", "RAP"]
+  },
+  {
+    "letters": ["S", "T", "A", "R"],
+    "validWords": ["STAR", "RATS", "TARS", "ARTS", "SAT", "TAR"]
+  },
+  {
+    "letters": ["F", "I", "S", "H"],
+    "validWords": ["FISH", "HIS", "SIF", "IFS"]
+  },
+  {
+    "letters": ["C", "O", "I", "N"],
+    "validWords": ["COIN", "ICON", "CON", "ION", "NICO"]
+  },
+  {
+    "letters": ["G", "A", "M", "E"],
+    "validWords": ["GAME", "MEGA", "MAGE", "AGE", "GAM"]
+  },
+  {
+    "letters": ["P", "A", "I", "N"],
+    "validWords": ["PAIN", "PINA", "NAIP", "NIP", "PAN"]
+  },
+  {
+    "letters": ["B", "O", "A", "T"],
+    "validWords": ["BOAT", "BOTA", "OAT", "BAT", "TAB"]
+  },
+  {
+    "letters": ["R", "I", "N", "G"],
+    "validWords": ["RING", "GRIN", "RIG", "GIN", "NIR"]
+  },
+  {
+    "letters": ["C", "O", "D", "E"],
+    "validWords": ["CODE", "DECO", "COED", "DOE", "ODE"]
+  },
+  {
+    "letters": ["S", "N", "A", "K", "E"],
+    "validWords": ["SNAKE", "SKEAN", "KANES", "EANS", "SANE", "ASK"]
+  },
+  {
+    "letters": ["P", "L", "A", "N", "E"],
+    "validWords": ["PLANE", "PANEL", "NEPAL", "LEAN", "LANE", "PAL"]
+  },
+  {
+    "letters": ["T", "I", "G", "E", "R"],
+    "validWords": ["TIGER", "TRIGE", "GRITE", "TIRE", "RITE", "GET"]
+  },
+  {
+    "letters": ["C", "L", "O", "U", "D"],
+    "validWords": ["CLOUD", "COULD", "DUCLO", "CLU", "OLD", "CUD"]
+  },
+  {
+    "letters": ["S", "H", "A", "R", "K"],
+    "validWords": ["SHARK", "HARKS", "ARKS", "HARK", "ASK", "ARK"]
+  },
+  {
+    "letters": ["F", "L", "O", "W", "N"],
+    "validWords": ["FLOWN", "WOLF", "FOWL", "NOW", "OWN", "LOW"]
+  },
+  {
+    "letters": ["M", "O", "O", "N", "S"],
+    "validWords": ["MOONS", "MONOS", "NOMOS", "SON", "MONO", "NOS"]
+  },
+  {
+    "letters": ["B", "R", "A", "I", "N"],
+    "validWords": ["BRAIN", "BAIRN", "BRIAN", "RAIN", "AIR", "RAN"]
+  }
+]
