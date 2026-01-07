@@ -4,20 +4,10 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { ArrowLeft, CheckCircle2, Clock, Coins } from 'lucide-react';
 import { api } from '../utils/api';
-
-// This function should be in the parent component of QuestsAndCoins
-const handleCompleteQuest = async (questId: string, reward: number) => {
-  try {
-    // Assuming you have the user's ID
-    const userId = 'USER_ID'; // Replace with the actual user ID
-    await api.completeQuest(userId, questId, reward);
-
-    // You might want to refresh the user's profile here
-    // to get the updated coin count.
-  } catch (error) {
-    console.error('Failed to complete quest:', error);
-  }
-};
+import { MindfulMomentActivity } from './quest-activities/MindfulMomentActivity';
+import { GratitudePracticeActivity } from './quest-activities/GratitudePracticeActivity';
+import { MoveYourBodyActivity } from './quest-activities/MoveYourBodyActivity';
+import { StayHydratedActivity } from './quest-activities/StayHydratedActivity';
 
 interface Quest {
   id: string;
@@ -33,14 +23,25 @@ interface QuestsAndCoinsProps {
   coins: number;
   onCoinsUpdate: (coins: number) => void;
   onBack: () => void;
+  userId: string;
+  petName: string;
+  petType?: string;
+  onJournalSubmit?: (entry: any) => void;
 }
 
-export function QuestsAndCoins({ coins, onCoinsUpdate, onBack }: QuestsAndCoinsProps) {
+type ActiveQuest = 'journal' | 'mindfulness' | 'gratitude' | 'exercise' | 'hydration' | null;
+
+export function QuestsAndCoins({ coins, onCoinsUpdate, onBack, userId, petName, petType = 'dog', onJournalSubmit }: QuestsAndCoinsProps) {
   const [quests, setQuests] = useState<Quest[]>([]);
   const [completedToday, setCompletedToday] = useState<string[]>([]);
+  const [activeQuest, setActiveQuest] = useState<ActiveQuest>(null);
+  const [journalEntriesCount, setJournalEntriesCount] = useState(0);
 
   useEffect(() => {
-    // Initialize quests
+    loadQuestData();
+  }, []);
+
+  const loadQuestData = async () => {
     const dailyQuests: Quest[] = [
       {
         id: 'journal',
@@ -58,7 +59,7 @@ export function QuestsAndCoins({ coins, onCoinsUpdate, onBack }: QuestsAndCoinsP
         reward: 15,
         completed: false,
         type: 'daily',
-        emoji: '🧘‍♀️'
+        emoji: '🧘♀️'
       },
       {
         id: 'gratitude',
@@ -76,7 +77,7 @@ export function QuestsAndCoins({ coins, onCoinsUpdate, onBack }: QuestsAndCoinsP
         reward: 30,
         completed: false,
         type: 'daily',
-        emoji: '🏃‍♀️'
+        emoji: '🏃♀️'
       },
       {
         id: 'hydration',
@@ -89,57 +90,132 @@ export function QuestsAndCoins({ coins, onCoinsUpdate, onBack }: QuestsAndCoinsP
       }
     ];
 
-    // Load completed quests from localStorage
-    const savedCompleted = localStorage.getItem('mindpal-completed-quests');
-    const today = new Date().toDateString();
-    const savedDate = localStorage.getItem('mindpal-quests-date');
-    
-    if (savedCompleted && savedDate === today) {
-      const completed = JSON.parse(savedCompleted);
-      setCompletedToday(completed);
+    try {
+      // Check journal entries for today
+      const journalEntries = await api.getJournalEntries(userId, 50);
+      const today = new Date().toDateString();
+      const todayEntries = journalEntries.filter((entry: any) => 
+        new Date(entry.created_at).toDateString() === today
+      );
+      setJournalEntriesCount(todayEntries.length);
+
+      // Load completed quests from localStorage
+      const savedCompleted = localStorage.getItem('mindpal-completed-quests');
+      const savedDate = localStorage.getItem('mindpal-quests-date');
       
+      let completed: string[] = [];
+      if (savedCompleted && savedDate === today) {
+        completed = JSON.parse(savedCompleted);
+      } else {
+        localStorage.setItem('mindpal-quests-date', today);
+        localStorage.setItem('mindpal-completed-quests', JSON.stringify([]));
+      }
+
+      // Auto-complete journal quest if entry exists
+      if (todayEntries.length > 0 && !completed.includes('journal')) {
+        completed.push('journal');
+        localStorage.setItem('mindpal-completed-quests', JSON.stringify(completed));
+      }
+
+      setCompletedToday(completed);
       const updatedQuests = dailyQuests.map(quest => ({
         ...quest,
         completed: completed.includes(quest.id)
       }));
       setQuests(updatedQuests);
-    } else {
-      // Reset for new day
+    } catch (error) {
+      console.error('Error loading quest data:', error);
       setQuests(dailyQuests);
-      setCompletedToday([]);
-      localStorage.setItem('mindpal-quests-date', today);
-      localStorage.setItem('mindpal-completed-quests', JSON.stringify([]));
     }
-  }, []);
+  };
 
-  const completeQuest = (questId: string) => {
+  const completeQuest = async (questId: string) => {
     const quest = quests.find(q => q.id === questId);
     if (!quest || quest.completed) return;
 
-    // Update quest status
-    setQuests(prev => prev.map(q => 
-      q.id === questId ? { ...q, completed: true } : q
-    ));
+    try {
+      await api.completeQuest(userId, questId, quest.reward);
+      
+      // Update quest status
+      setQuests(prev => prev.map(q => 
+        q.id === questId ? { ...q, completed: true } : q
+      ));
 
-    // Update completed list
-    const newCompleted = [...completedToday, questId];
-    setCompletedToday(newCompleted);
-    
-    // Update coins
-    onCoinsUpdate(coins + quest.reward);
+      // Update completed list
+      const newCompleted = [...completedToday, questId];
+      setCompletedToday(newCompleted);
+      
+      // Update coins
+      onCoinsUpdate(coins + quest.reward);
 
-    // Save to localStorage
-    localStorage.setItem('mindpal-completed-quests', JSON.stringify(newCompleted));
+      // Save to localStorage
+      localStorage.setItem('mindpal-completed-quests', JSON.stringify(newCompleted));
 
-    // Show celebration animation
-    setTimeout(() => {
-      const celebration = document.createElement('div');
-      celebration.innerHTML = `+${quest.reward} 🪙`;
-      celebration.className = 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-bold text-yellow-500 pointer-events-none z-50 animate-bounce';
-      document.body.appendChild(celebration);
-      setTimeout(() => celebration.remove(), 2000);
-    }, 100);
+      // Show celebration animation
+      setTimeout(() => {
+        const celebration = document.createElement('div');
+        celebration.innerHTML = `+${quest.reward} 🪙`;
+        celebration.className = 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-bold text-yellow-500 pointer-events-none z-50 animate-bounce';
+        document.body.appendChild(celebration);
+        setTimeout(() => celebration.remove(), 2000);
+      }, 100);
+    } catch (error) {
+      console.error('Error completing quest:', error);
+    }
   };
+
+  const startQuest = (questId: string) => {
+    if (questId === 'journal' && onJournalSubmit) {
+      // Navigate to journal - this should be handled by parent component
+      return;
+    }
+    setActiveQuest(questId as ActiveQuest);
+  };
+
+  const handleQuestComplete = (questId: string) => {
+    setActiveQuest(null);
+    completeQuest(questId);
+  };
+
+  // Render active quest activity
+  if (activeQuest === 'mindfulness') {
+    return (
+      <MindfulMomentActivity
+        onComplete={() => handleQuestComplete('mindfulness')}
+        onBack={() => setActiveQuest(null)}
+        petType={petType}
+      />
+    );
+  }
+
+  if (activeQuest === 'gratitude') {
+    return (
+      <GratitudePracticeActivity
+        onComplete={() => handleQuestComplete('gratitude')}
+        onBack={() => setActiveQuest(null)}
+      />
+    );
+  }
+
+  if (activeQuest === 'exercise') {
+    return (
+      <MoveYourBodyActivity
+        onComplete={() => handleQuestComplete('exercise')}
+        onBack={() => setActiveQuest(null)}
+        petType={petType}
+      />
+    );
+  }
+
+  if (activeQuest === 'hydration') {
+    return (
+      <StayHydratedActivity
+        onComplete={() => handleQuestComplete('hydration')}
+        onBack={() => setActiveQuest(null)}
+        petName={petName}
+      />
+    );
+  }
 
   const completedQuests = quests.filter(q => q.completed).length;
   const totalRewards = quests.filter(q => q.completed).reduce((sum, q) => sum + q.reward, 0);
@@ -236,10 +312,22 @@ export function QuestsAndCoins({ coins, onCoinsUpdate, onBack }: QuestsAndCoinsP
                   
                   {!quest.completed && (
                     <Button
-                      onClick={() => completeQuest(quest.id)}
-                      className="bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white rounded-full px-6 py-2 font-medium"
+                      onClick={() => {
+                        if (quest.id === 'journal') {
+                          if (journalEntriesCount > 0) {
+                            completeQuest(quest.id);
+                          } else {
+                            // This should navigate to journal - handle in parent
+                            alert('Please write a journal entry first!');
+                          }
+                        } else {
+                          startQuest(quest.id);
+                        }
+                      }}
+                      style={{ backgroundColor: '#000000', color: '#ffffff' }}
+                      className="hover:!bg-gray-800 rounded-full px-6 py-2 font-medium"
                     >
-                      Complete
+                      {quest.id === 'journal' && journalEntriesCount > 0 ? 'Complete' : 'Start'}
                     </Button>
                   )}
                   

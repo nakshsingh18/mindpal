@@ -6,9 +6,10 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { useNavigate } from 'react-router-dom';
 import { TherapistChat } from './TherapistChat';
+import { TherapistAnalytics } from './TherapistAnalytics';
 import Lottie from 'lottie-react';
 import calmAnim from '../assets/animations/penguin/calm.json';
-import { Users, Mail, List } from 'lucide-react';
+import { Users, Mail, List, BarChart3 } from 'lucide-react';
 
 // Small count-up component for livelier stats
 function CountUp({ value, duration = 700 }: { value: number; duration?: number }) {
@@ -33,9 +34,11 @@ function CountUp({ value, duration = 700 }: { value: number; duration?: number }
 
 export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [requests, setRequests] = useState<any[]>([]);
+  const [acceptedConnections, setAcceptedConnections] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [openChat, setOpenChat] = useState<{ chatId: string; userId: string; userEmail?: string } | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const navigate = useNavigate();
 
   const getSenderDisplay = (req: any) => {
@@ -93,6 +96,7 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
 
       setProfile(profileData);
       await loadRequests(user.id);
+      await loadAcceptedConnections(user.id);
       setLoading(false);
 
       // Realtime subscription for new requests for this therapist
@@ -103,7 +107,12 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
           table: 'therapist_requests', 
           filter: `therapist_id=eq.${user.id}` 
         }, payload => {
-          setRequests(prev => [payload.new, ...prev]);
+          if (payload.new.status === 'pending') {
+            setRequests(prev => {
+              const exists = prev.some(r => r.user_id === payload.new.user_id);
+              return exists ? prev : [payload.new, ...prev];
+            });
+          }
         })
         .on('postgres_changes', { 
           event: 'UPDATE', 
@@ -111,7 +120,20 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
           table: 'therapist_requests', 
           filter: `therapist_id=eq.${user.id}` 
         }, payload => {
-          setRequests(prev => prev.map(r => r.id === payload.new.id ? payload.new : r));
+          if (payload.new.status === 'accepted') {
+            // Remove from pending and add to accepted
+            setRequests(prev => prev.filter(r => r.id !== payload.new.id));
+            setAcceptedConnections(prev => {
+              const exists = prev.some(r => r.user_id === payload.new.user_id);
+              return exists ? prev : [...prev, payload.new];
+            });
+          } else if (payload.new.status === 'rejected') {
+            // Remove from pending
+            setRequests(prev => prev.filter(r => r.id !== payload.new.id));
+          } else {
+            // Update pending request
+            setRequests(prev => prev.map(r => r.id === payload.new.id ? payload.new : r));
+          }
         })
         .subscribe();
 
@@ -127,25 +149,75 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
     if (error) {
       console.error('Error loading requests:', error);
     }
-    setRequests(data || []);
+    // Only show pending requests and remove duplicates by user_id
+    const pendingOnly = (data || []).filter(req => req.status === 'pending');
+    console.log('All requests:', data);
+    console.log('Pending only:', pendingOnly);
+    const uniqueRequests = pendingOnly.filter((req, index, arr) => 
+      arr.findIndex(r => r.user_id === req.user_id) === index
+    );
+    console.log('Unique pending requests:', uniqueRequests);
+    setRequests(uniqueRequests);
+  };
+
+  const loadAcceptedConnections = async (therapistId: string) => {
+    const { data, error } = await fetchTherapistRequestsFor(therapistId);
+    if (error) {
+      console.error('Error loading accepted connections:', error);
+      return;
+    }
+    // Only show accepted connections and remove duplicates by user_id (keep most recent)
+    const acceptedOnly = (data || []).filter(req => req.status === 'accepted');
+    const uniqueConnections = acceptedOnly.reduce((acc: any[], req) => {
+      const existing = acc.find(r => r.user_id === req.user_id);
+      if (!existing) {
+        acc.push(req);
+      } else if (new Date(req.created_at) > new Date(existing.created_at)) {
+        // Replace with more recent request
+        const index = acc.findIndex(r => r.user_id === req.user_id);
+        acc[index] = req;
+      }
+      return acc;
+    }, []);
+    setAcceptedConnections(uniqueConnections);
   };
 
   const handleAccept = async (reqId: string) => {
+    console.log('Accepting request:', reqId);
     const { error } = await updateRequestStatus(reqId, 'accepted');
     if (error) {
+      console.error('Accept error:', error);
       alert('Error accepting request: ' + error.message);
       return;
     }
-    setRequests(prev => prev.map(r => (r.id === reqId ? { ...r, status: 'accepted' } : r)));
+    console.log('Request accepted successfully');
+    // Remove ALL requests from this user, not just this specific request
+    const acceptedRequest = requests.find(r => r.id === reqId);
+    if (acceptedRequest) {
+      setRequests(prev => prev.filter(r => r.user_id !== acceptedRequest.user_id));
+      // Check if user already exists in accepted connections to avoid duplicates
+      setAcceptedConnections(prev => {
+        const exists = prev.some(conn => conn.user_id === acceptedRequest.user_id);
+        if (exists) return prev;
+        return [...prev, { ...acceptedRequest, status: 'accepted' }];
+      });
+    }
   };
 
   const handleReject = async (reqId: string) => {
+    console.log('Rejecting request:', reqId);
     const { error } = await updateRequestStatus(reqId, 'rejected');
     if (error) {
+      console.error('Reject error:', error);
       alert('Error rejecting request: ' + error.message);
       return;
     }
-    setRequests(prev => prev.map(r => (r.id === reqId ? { ...r, status: 'rejected' } : r)));
+    console.log('Request rejected successfully');
+    // Remove ALL requests from this user, not just this specific request
+    const rejectedRequest = requests.find(r => r.id === reqId);
+    if (rejectedRequest) {
+      setRequests(prev => prev.filter(r => r.user_id !== rejectedRequest.user_id));
+    }
   };
 
   const openChatWith = (userId: string) => {
@@ -156,8 +228,15 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/');
+    try {
+      await supabase.auth.signOut();
+      // Force a page reload to reset all app state
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Fallback: force reload anyway
+      window.location.reload();
+    }
   };
 
   if (loading) {
@@ -171,8 +250,23 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
     );
   }
 
-  const pendingRequests = requests.filter(r => r.status === 'pending');
-  const acceptedRequests = requests.filter(r => r.status === 'accepted');
+  const pendingRequests = requests; // All requests are now pending only
+  const connectedUserIds = acceptedConnections.map(req => req.user_id);
+  
+  console.log('Debug - acceptedConnections:', acceptedConnections);
+  console.log('Debug - connectedUserIds:', connectedUserIds);
+
+  // Show analytics if requested
+  if (showAnalytics) {
+    return (
+      <TherapistAnalytics
+        onBack={() => setShowAnalytics(false)}
+        therapistId={profile?.id || ''}
+        connectedUserIds={connectedUserIds}
+        acceptedConnections={acceptedConnections}
+      />
+    );
+  }
 
   return (
     <div className="p-6 min-h-screen bg-animated-gradient">
@@ -219,7 +313,7 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
               <div className="icon p-2 rounded bg-green-50 text-green-600"><Users size={18} /></div>
               <div>
                 <div className="text-sm text-gray-500">Active</div>
-                <div className="mp-stat"><CountUp value={acceptedRequests.length} /></div>
+                <div className="mp-stat"><CountUp value={acceptedConnections.length} /></div>
               </div>
             </div>
           </Card>
@@ -228,7 +322,7 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
               <div className="icon p-2 rounded bg-sky-50 text-blue-600"><List size={18} /></div>
               <div>
                 <div className="text-sm text-gray-500">Total</div>
-                <div className="mp-stat"><CountUp value={requests.length} /></div>
+                <div className="mp-stat"><CountUp value={requests.length + acceptedConnections.length} /></div>
               </div>
             </div>
           </Card>
@@ -267,12 +361,12 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
                       </div>
                       <div className="flex flex-col items-end space-y-2 ml-4">
                         <Button
-                          onClick={() => { handleAccept(req.id); openChatWith(req.user_id); }}
+                          onClick={() => handleAccept(req.id)}
                           variant="default"
                           size="sm"
                           className="mp-btn-primary !px-3 !py-2 rounded-md"
                         >
-                          Accept & Chat
+                          Accept
                         </Button>
                         <Button
                           onClick={() => handleReject(req.id)}
@@ -292,15 +386,27 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
 
           {/* Active Connections */}
           <Card className="p-4 bg-white">
-            <h3 className="font-semibold mb-4 text-lg">Active Connections</h3>
-            {acceptedRequests.length === 0 ? (
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-lg">Active Connections</h3>
+                        <Button
+                          onClick={() => setShowAnalytics(true)}
+                          variant="outline"
+                          size="sm"
+                          className="text-purple-600 border-purple-300 hover:bg-purple-50 flex items-center gap-2"
+                          disabled={acceptedConnections.length === 0}
+                        >
+                          <BarChart3 className="w-4 h-4" />
+                          Analytics ({acceptedConnections.length})
+                        </Button>
+            </div>
+            {acceptedConnections.length === 0 ? (
               <div className="text-center py-8">
                 <div className="text-4xl mb-2">💬</div>
                 <div className="text-sm text-gray-500">No active connections yet</div>
               </div>
             ) : (
               <div className="space-y-3">
-                {acceptedRequests.map(req => (
+                {acceptedConnections.map(req => (
                   <div key={req.id} className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm transition-transform transform hover:-translate-y-1 hover:shadow-lg">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -310,14 +416,25 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
                           <div className="text-xs text-gray-500">Connected: {new Date(req.created_at).toLocaleDateString()}</div>
                         </div>
                       </div>
-                      <Button
-                        onClick={() => openChatWith(req.user_id)}
-                        variant="default"
-                        size="sm"
-                        className="!bg-emerald-600 !text-white hover:!bg-emerald-700 !border !border-emerald-600 px-3 py-2 rounded-md shadow-sm"
-                      >
-                        Open Chat
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          onClick={() => openChatWith(req.user_id)}
+                          variant="default"
+                          size="sm"
+                          className="!bg-emerald-600 !text-white hover:!bg-emerald-700 !border !border-emerald-600 px-3 py-2 rounded-md shadow-sm"
+                        >
+                          Chat
+                        </Button>
+                        <Button
+                          onClick={() => setShowAnalytics(true)}
+                          variant="outline"
+                          size="sm"
+                          className="text-purple-600 border-purple-300 hover:bg-purple-50 px-3 py-2 rounded-md flex items-center gap-1"
+                        >
+                          <BarChart3 className="w-3 h-3" />
+                          Analytics
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -329,21 +446,8 @@ export const TherapistDashboard: React.FC<{ onBack?: () => void }> = ({ onBack }
 
       {/* Chat Modal */}
       {openChat && (
-        <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1" onClick={() => setOpenChat(null)} />
-          <div className="w-full max-w-md h-full bg-white shadow-2xl overflow-auto">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-700">{openChat.userId?.charAt(0).toUpperCase()}</div>
-                <div>
-                  <div className="font-medium text-gray-800">Chat</div>
-                  <div className="text-xs text-gray-500">Conversation with user</div>
-                </div>
-              </div>
-              <div>
-                <Button variant="ghost" onClick={() => setOpenChat(null)}>Close</Button>
-              </div>
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-2xl h-[600px] bg-white shadow-2xl rounded-2xl overflow-hidden mx-4">
             <TherapistChat
               chatId={openChat.chatId}
               therapistId={profile.id}

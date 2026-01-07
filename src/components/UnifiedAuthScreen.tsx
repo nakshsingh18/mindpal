@@ -311,9 +311,35 @@ export function UnifiedAuthScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="min-h-screen bg-gradient-to-br from-violet-100 via-blue-50 to-teal-100 flex items-center justify-center p-4"
+        className="min-h-screen bg-gradient-to-br from-violet-100 via-blue-50 to-teal-100 flex items-center justify-center p-4 relative overflow-hidden"
       >
-        <div className="max-w-2xl w-full">
+        {/* Floating background elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {[...Array(15)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute text-4xl opacity-20"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+              }}
+              animate={{
+                y: [0, -30, 0],
+                rotate: [0, 360],
+                opacity: [0.1, 0.3, 0.1],
+              }}
+              transition={{
+                duration: 8 + Math.random() * 4,
+                repeat: Infinity,
+                delay: Math.random() * 2,
+              }}
+            >
+              {["🌸", "✨", "🌈", "💫", "🦋", "🌟", "💜"][Math.floor(Math.random() * 7)]}
+            </motion.div>
+          ))}
+        </div>
+
+        <div className="max-w-2xl w-full relative z-10">
           {/* Logo & Header */}
           <motion.div
             initial={{ y: -20, opacity: 0 }}
@@ -321,32 +347,59 @@ export function UnifiedAuthScreen() {
             transition={{ delay: 0.1 }}
             className="text-center mb-12"
           >
-            <div className="text-6xl mb-4">🧠💜</div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-600 to-pink-600 bg-clip-text text-transparent mb-2">
+            <motion.div 
+              className="text-6xl mb-4"
+              animate={{ 
+                scale: [1, 1.1, 1],
+                rotate: [0, 5, -5, 0]
+              }}
+              transition={{ duration: 3, repeat: Infinity }}
+            >
+              🧠💜
+            </motion.div>
+            <motion.h1 
+              className="text-5xl font-bold bg-gradient-to-r from-violet-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-4"
+              whileHover={{ scale: 1.05 }}
+            >
               MindPal
-            </h1>
-            <p className="text-lg text-gray-700">Your Mental Wellness Companion</p>
+            </motion.h1>
+            <motion.p 
+              className="text-xl text-gray-700 font-medium"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              Your Mental Wellness Companion
+            </motion.p>
           </motion.div>
 
           {/* Role Selection Cards */}
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+          <div className="grid md:grid-cols-2 gap-6 mb-8">
             {/* User Card */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
+              whileHover={{ scale: 1.02, y: -5 }}
+              whileTap={{ scale: 0.98 }}
             >
-              <Card className="p-6 cursor-pointer hover:shadow-lg transition-all border-2 border-transparent hover:border-violet-300 bg-white/60 backdrop-blur-sm"
+              <Card className="p-8 cursor-pointer hover:shadow-2xl transition-all duration-300 border-2 border-transparent hover:border-violet-300 bg-white/70 backdrop-blur-md group relative overflow-hidden"
                 onClick={() => { setMode("user-login"); resetForm(); }}
               >
-                <div className="flex items-center justify-between mb-4">
+                <div className="absolute inset-0 bg-gradient-to-br from-violet-100 to-blue-100 opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
+                <div className="flex items-center justify-between mb-6 relative z-10">
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-800">For Users</h3>
-                    <p className="text-sm text-gray-600">Track your wellness journey</p>
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">For Users</h3>
+                    <p className="text-gray-600">Track your wellness journey</p>
                   </div>
-                  <div className="text-4xl">👤</div>
+                  <motion.div 
+                    className="text-5xl"
+                    whileHover={{ scale: 1.2, rotate: 10 }}
+                  >
+                    👤
+                  </motion.div>
                 </div>
-                <Button className="w-full bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white">
+                <Button className="w-full bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white font-semibold py-3 text-lg shadow-lg hover:shadow-xl transition-all duration-300 relative z-10">
                   Enter as User
                 </Button>
               </Card>
@@ -357,18 +410,26 @@ export function UnifiedAuthScreen() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
+              whileHover={{ scale: 1.02, y: -5 }}
+              whileTap={{ scale: 0.98 }}
             >
-              <Card className="p-6 cursor-pointer hover:shadow-lg transition-all border-2 border-transparent hover:border-emerald-300 bg-white/60 backdrop-blur-sm"
+              <Card className="p-8 cursor-pointer hover:shadow-2xl transition-all duration-300 border-2 border-transparent hover:border-emerald-300 bg-white/70 backdrop-blur-md group relative overflow-hidden"
                 onClick={() => { setMode("therapist-login"); resetForm(); }}
               >
-                <div className="flex items-center justify-between mb-4">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-100 to-teal-100 opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
+                <div className="flex items-center justify-between mb-6 relative z-10">
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-800">For Therapists</h3>
-                    <p className="text-sm text-gray-600">Connect with clients</p>
+                    <h3 className="text-2xl font-bold text-gray-800 mb-2">For Therapists</h3>
+                    <p className="text-gray-600">Connect with clients</p>
                   </div>
-                  <div className="text-4xl">👨‍⚕️</div>
+                  <motion.div 
+                    className="text-5xl"
+                    whileHover={{ scale: 1.2, rotate: -10 }}
+                  >
+                    👨‍⚕️
+                  </motion.div>
                 </div>
-                <Button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white">
+                <Button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold py-3 text-lg shadow-lg hover:shadow-xl transition-all duration-300 relative z-10">
                   Enter as Therapist
                 </Button>
               </Card>
@@ -380,12 +441,23 @@ export function UnifiedAuthScreen() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
           >
             <Button
               onClick={handleGuestMode}
               disabled={isLoading}
-              className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-3 rounded-lg transition-all"
+              className="w-full bg-white/80 hover:bg-white/90 text-gray-800 font-semibold py-4 text-lg rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 backdrop-blur-sm border border-gray-200"
             >
+              {isLoading ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  className="inline-block mr-2"
+                >
+                  ⏳
+                </motion.div>
+              ) : null}
               {isLoading ? "Loading..." : "Continue as Guest 👻"}
             </Button>
           </motion.div>
@@ -803,32 +875,40 @@ function AuthForm({
             )}
 
             {/* Submit Button */}
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className={`w-full bg-gradient-to-r ${gradientClass} hover:shadow-lg text-white font-medium py-3 rounded-lg transition-all h-11 text-base`}
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
-              {isLoading ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity }}
-                  className="inline-block"
-                >
-                  ⏳
-                </motion.div>
-              ) : isSignupMode ? (
-                `Create ${isTherapistMode ? "Therapist" : "User"} Account`
-              ) : (
-                `${isTherapistMode ? "Therapist" : "User"} Login`
-              )}
-            </Button>
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className={`w-full bg-gradient-to-r ${gradientClass} hover:shadow-xl text-white font-semibold py-4 rounded-xl transition-all h-12 text-lg relative overflow-hidden group`}
+              >
+                <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+                {isLoading ? (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                    className="inline-block relative z-10"
+                  >
+                    ⏳
+                  </motion.div>
+                ) : isSignupMode ? (
+                  <span className="relative z-10">Create {isTherapistMode ? "Therapist" : "User"} Account</span>
+                ) : (
+                  <span className="relative z-10">{isTherapistMode ? "Therapist" : "User"} Login</span>
+                )}
+              </Button>
+            </motion.div>
 
             {/* Toggle between login/signup */}
-            <div className="text-center pt-4 border-t border-gray-200">
-              <p className="text-sm text-gray-600">
+            <div className="text-center pt-6 border-t border-gray-200">
+              <p className="text-gray-600 mb-3">
                 {isSignupMode ? "Already have an account? " : "Don't have an account? "}
-                <button
+                <motion.button
                   type="button"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() =>
                     setMode(
                       isUserMode
@@ -840,22 +920,27 @@ function AuthForm({
                         : "therapist-signup"
                     )
                   }
-                  className="text-violet-600 hover:text-violet-700 font-medium"
+                  className="text-violet-600 hover:text-violet-700 font-semibold underline decoration-2 underline-offset-2"
                 >
                   {isSignupMode ? "Login" : "Sign Up"}
-                </button>
+                </motion.button>
               </p>
             </div>
 
             {/* Back to welcome */}
-            <Button
-              type="button"
-              onClick={() => setMode("welcome")}
-              variant="outline"
-              className="w-full"
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
-              Back to Welcome
-            </Button>
+              <Button
+                type="button"
+                onClick={() => setMode("welcome")}
+                variant="outline"
+                className="w-full py-3 rounded-xl font-medium hover:bg-gray-50 transition-all duration-200"
+              >
+                Back to Welcome
+              </Button>
+            </motion.div>
           </form>
         </div>
       </Card>

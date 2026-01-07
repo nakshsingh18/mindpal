@@ -62,21 +62,56 @@ export function HomeDashboard({
       initial={{ opacity: 0.8 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className={`min-h-screen bg-gradient-to-br ${getMoodColor()} p-6`}
+      className={`min-h-screen bg-gradient-to-br ${getMoodColor()} p-6 relative overflow-hidden`}
     >
-      <div className="max-w-md mx-auto">
+      {/* Floating background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {[...Array(8)].map((_, i) => (
+          <motion.div
+            key={i}
+            className="absolute text-4xl opacity-20"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+            }}
+            animate={{
+              y: [0, -20, 0],
+              rotate: [0, 180, 360],
+              opacity: [0.1, 0.3, 0.1],
+            }}
+            transition={{
+              duration: 6 + Math.random() * 4,
+              repeat: Infinity,
+              delay: Math.random() * 2,
+            }}
+          >
+            {["🌸", "✨", "🌈", "💫", "🦋", "🌟"][Math.floor(Math.random() * 6)]}
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="max-w-md mx-auto relative z-10">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <h1 className="text-2xl mb-2 bg-gradient-to-r from-violet-600 to-teal-600 bg-clip-text text-transparent">
+          <motion.h1 
+            className="text-3xl mb-2 bg-gradient-to-r from-violet-600 to-teal-600 bg-clip-text text-transparent font-bold"
+            whileHover={{ scale: 1.05 }}
+            transition={{ type: "spring", stiffness: 300 }}
+          >
             MindPal
-          </h1>
-          <Badge variant="secondary" className="bg-white/50 backdrop-blur-sm rounded-full">
-            Day {userProfile?.streak || 0} Streak 🔥
-          </Badge>
+          </motion.h1>
+          <motion.div
+            whileHover={{ scale: 1.1, rotate: 5 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Badge variant="secondary" className="bg-white/70 backdrop-blur-sm rounded-full shadow-lg border-0 px-4 py-2">
+              Day {userProfile?.streak || 0} Streak 🔥
+            </Badge>
+          </motion.div>
         </motion.div>
 
         {/* Pet Companion Area */}
@@ -85,15 +120,16 @@ export function HomeDashboard({
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.8 }}
           className="mb-8"
+          whileHover={{ scale: 1.02 }}
         >
-          <Card className="p-8 bg-white/60 backdrop-blur-sm border-0 shadow-xl rounded-3xl">
+          <Card className="p-8 bg-white/70 backdrop-blur-md border-0 shadow-2xl rounded-3xl hover:shadow-3xl transition-all duration-300 hover:bg-white/80">
             <PetCompanion pet={pet} mood={mood} />
             
             <motion.p
               key={mood}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center mt-6 text-gray-700"
+              className="text-center mt-6 text-gray-700 font-medium"
             >
               {getMoodMessage()}
             </motion.p>
@@ -134,41 +170,53 @@ export function HomeDashboard({
           transition={{ delay: 0.6 }}
           className="space-y-3"
         >
-          <Button
-            onClick={onOpenJournal}
-            className="w-full h-14 bg-gradient-to-r from-pink-400 to-purple-500 hover:from-pink-500 hover:to-purple-600 text-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300"
+          <motion.div
+            whileHover={{ scale: 1.02, y: -3 }}
+            whileTap={{ scale: 0.98 }}
           >
-            <span className="mr-2 text-lg">📝</span>
-            Write in Journal
-          </Button>
+            <Button
+              onClick={onOpenJournal}
+              className="w-full h-16 bg-gradient-to-r from-pink-400 to-purple-500 hover:from-pink-500 hover:to-purple-600 text-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 text-lg font-semibold relative overflow-hidden group"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-pink-300 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+              <span className="mr-3 text-2xl group-hover:animate-bounce">📝</span>
+              <span className="relative z-10">Write in Journal</span>
+            </Button>
+          </motion.div>
           
           <div className="grid grid-cols-3 gap-3">
-            <Button
-              onClick={onOpenQuests}
-              variant="outline"
-              className="h-12 bg-white/70 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/90 transition-all duration-300"
-            >
-              <span className="mr-2">🎯</span>
-              Quests
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={onOpenQuests}
+                variant="outline"
+                className="h-14 bg-white/80 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/95 transition-all duration-300 shadow-md hover:shadow-lg group"
+              >
+                <span className="mr-2 text-xl group-hover:animate-pulse">🎯</span>
+                <span className="font-medium">Quests</span>
+              </Button>
+            </motion.div>
             
-            <Button
-              onClick={() => onOpenAnalytics && onOpenAnalytics()}
-              variant="outline"
-              className="h-12 bg-white/70 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/90 transition-all duration-300"
-            >
-              <span className="mr-2">📊</span>
-              Stats
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={() => onOpenAnalytics && onOpenAnalytics()}
+                variant="outline"
+                className="h-14 bg-white/80 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/95 transition-all duration-300 shadow-md hover:shadow-lg group"
+              >
+                <span className="mr-2 text-xl group-hover:animate-spin">📊</span>
+                <span className="font-medium">Stats</span>
+              </Button>
+            </motion.div>
             
-            <Button
-              onClick={onOpenCustomization}
-              variant="outline"
-              className="h-12 bg-white/70 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/90 transition-all duration-300"
-            >
-              <span className="mr-2">👗</span>
-              Style
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={onOpenCustomization}
+                variant="outline"
+                className="h-14 bg-white/80 backdrop-blur-sm border-0 rounded-2xl hover:bg-white/95 transition-all duration-300 shadow-md hover:shadow-lg group"
+              >
+                <span className="mr-2 text-xl group-hover:animate-bounce">👗</span>
+                <span className="font-medium">Style</span>
+              </Button>
+            </motion.div>
           </div>
         </motion.div>
 

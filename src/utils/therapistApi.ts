@@ -111,7 +111,7 @@ export const subscribeToChat = (chatId: string, onMessage: (msg: any) => void) =
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
-      table: 'messages',
+      table: 'therapist_chat',
       filter: `chat_id=eq.${chatId}`,
     }, (payload) => {
       onMessage(payload.new);

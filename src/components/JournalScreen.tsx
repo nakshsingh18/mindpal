@@ -3,11 +3,20 @@ import { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Card } from './ui/card';
-import { analyzeSentiment, analyzeSentimentAuto, getMoodExplanation, type AnalyzedMood } from '../utils/sentimentAnalysis';
-import { supabase } from '../utils/supabase/client';
+import { analyzeSentimentAdvanced, getMoodExplanation, type AnalysisResult } from '../utils/sentimentAnalysis';
 
 interface JournalEntry {
-  mood: AnalyzedMood;
+  mood:
+    | "happy"
+    | "sad"
+    | "calm"
+    | "anxious"
+    | "excited"
+    | "angry"
+    | "irritated"
+    | "frustrated"
+    | "content"
+    | "energetic";
   content: string;
   date: Date;
   confidence?: number;
@@ -19,6 +28,8 @@ interface JournalScreenProps {
   onBack: () => void;
   petName: string;
 }
+
+type AnalyzedMood = "happy" | "sad" | "calm" | "anxious" | "excited" | "angry" | "irritated" | "frustrated" | "content" | "energetic";
 
 const moodEmojis: { [key in AnalyzedMood]: string } = {
   happy: '😊',
@@ -37,153 +48,152 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
   const [journalText, setJournalText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [detectedMood, setDetectedMood] = useState<AnalyzedMood | null>(null);
-    const [moodExplanation, setMoodExplanation] = useState<string>('');
-    const [confidence, setConfidence] = useState<number | null>(null);
-    const [triggers, setTriggers] = useState<string[]>([]);
-    const [isRecording, setIsRecording] = useState(false);
-    const [interimTranscript, setInterimTranscript] = useState('');
-    const recognitionRef = useRef<any | null>(null);
-    const [supportsSpeech, setSupportsSpeech] = useState<boolean>(true);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  const analyzeMoodFromText = (text: string) => {
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognitionInstance = new SpeechRecognition();
+      
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = true;
+      recognitionInstance.lang = 'en-US';
+      
+      recognitionInstance.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setJournalText(prev => prev + finalTranscript + ' ');
+        }
+      };
+      
+      recognitionInstance.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setIsRecording(false);
+      };
+      
+      recognitionInstance.onend = () => {
+        setIsListening(false);
+        setIsRecording(false);
+      };
+      
+      setRecognition(recognitionInstance);
+    }
+  }, []);
+
+  const startVoiceRecording = () => {
+    if (recognition) {
+      setIsRecording(true);
+      setIsListening(true);
+      recognition.start();
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recognition) {
+      recognition.stop();
+      setIsRecording(false);
+      setIsListening(false);
+    }
+  };
+
+  const analyzeMoodFromText = async (text: string) => {
     if (text.trim().length < 10) {
       setDetectedMood(null);
-      setMoodExplanation('');
+      setAnalysisResult(null);
       return;
     }
-    // Immediate local analysis for snappy feedback
-    const mood = analyzeSentiment(text);
-    const explanation = getMoodExplanation(text, mood);
-    setDetectedMood(mood);
-    setMoodExplanation(explanation);
-
-    // Async: try HF-enhanced analysis (if key present) then update state
-    analyzeSentimentAuto(text).then(res => {
-      if (!res) return;
-      setDetectedMood(res.mood);
-      setMoodExplanation(getMoodExplanation(text, res.mood));
-      setConfidence(Math.round((res.confidence || 0) * 100) / 100);
-      setTriggers(res.triggers || []);
-    }).catch(() => {
-      // ignore HF errors; keep local result
-    });
+    
+    setIsAnalyzing(true);
+    
+    try {
+      // Use advanced HF-powered analysis
+      const result = await analyzeSentimentAdvanced(text);
+      setDetectedMood(result.mood);
+      setAnalysisResult(result);
+      
+      console.log('Advanced analysis result:', result);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setJournalText(text);
     
-    // Debounce mood analysis
-    const timeoutId = setTimeout(() => analyzeMoodFromText(text), 800);
-    // clear previous timer
-    return () => clearTimeout(timeoutId);
+    // Clear existing timeout
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    
+    // Set new timeout for analysis
+    debounceRef.current = setTimeout(() => {
+      analyzeMoodFromText(text);
+    }, 2000); // 2 second delay
   };
 
-  // Initialize SpeechRecognition if available
-  useEffect(() => {
-    const w = window as any;
-    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition || null;
-    if (!SpeechRecognition) {
-      setSupportsSpeech(false);
-      return;
-    }
-
-    const recog = new SpeechRecognition();
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.lang = 'en-US';
-
-    recog.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const res = event.results[i];
-        if (res.isFinal) finalTranscript += res[0].transcript;
-        else interim += res[0].transcript;
-      }
-      if (finalTranscript) {
-        setJournalText((t) => (t ? t + ' ' + finalTranscript : finalTranscript));
-        analyzeMoodFromText((journalText ? journalText + ' ' : '') + finalTranscript);
-      }
-      setInterimTranscript(interim);
-    };
-
-    recog.onerror = (e: any) => {
-      console.warn('SpeechRecognition error', e);
-      setIsRecording(false);
-    };
-
-    recognitionRef.current = recog;
-
-    return () => {
-      try {
-        recog.stop();
-      } catch (e) {
-        // ignore
-      }
-      recognitionRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggleRecording = async () => {
-    if (!recognitionRef.current) {
-      setSupportsSpeech(false);
-      return;
-    }
-    const recog = recognitionRef.current;
-    if (isRecording) {
-      try { recog.stop(); } catch (e) {}
-      setIsRecording(false);
-      setInterimTranscript('');
-    } else {
-      try {
-        await recog.start();
-        setIsRecording(true);
-      } catch (e) {
-        console.warn('Could not start speech recognition', e);
-        setIsRecording(false);
-        setSupportsSpeech(false);
-      }
-    }
-  };
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!journalText.trim()) return;
     
     setIsSubmitting(true);
     
-    // Analyze sentiment one final time (prefer HF if available)
-    analyzeSentimentAuto(journalText).then(res => {
-      const finalMood = res?.mood ?? analyzeSentiment(journalText);
-      const finalExplanation = getMoodExplanation(journalText, finalMood);
+    try {
+      // Get final analysis if not already done
+      let finalAnalysis = analysisResult;
+      if (!finalAnalysis) {
+        finalAnalysis = await analyzeSentimentAdvanced(journalText);
+      }
+      
       const entry: JournalEntry = {
-        mood: finalMood,
+        mood: finalAnalysis.mood,
         content: journalText.trim(),
         date: new Date(),
-        aiAnalysis: finalExplanation,
-        confidence: res?.confidence
+        aiAnalysis: getMoodExplanation(journalText, finalAnalysis.mood, finalAnalysis),
+        confidence: finalAnalysis.confidence
       };
 
-      // Simulate processing time for AI analysis
-      setTimeout(() => {
-        onJournalSubmit(entry);
-        setIsSubmitting(false);
-      }, 800);
-    }).catch(() => {
-      const finalMood = analyzeSentiment(journalText);
-      const finalExplanation = getMoodExplanation(journalText, finalMood);
-      const entry: JournalEntry = {
-        mood: finalMood,
-        content: journalText.trim(),
-        date: new Date(),
-        aiAnalysis: finalExplanation
-      };
-      setTimeout(() => {
-        onJournalSubmit(entry);
-        setIsSubmitting(false);
-      }, 800);
-    });
+      console.log('Submitting advanced journal entry:', entry);
+      onJournalSubmit(entry);
+      
+      // Clear form
+      setJournalText('');
+      setDetectedMood(null);
+      setAnalysisResult(null);
+      
+    } catch (error) {
+      console.error('Error in handleSubmit:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -208,8 +218,8 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
           <div className="w-16" /> {/* Spacer */}
         </motion.div>
 
-        {/* AI Mood Detection */}
-        {detectedMood && (
+        {/* Advanced AI Mood Detection */}
+        {detectedMood && analysisResult && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -217,7 +227,7 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
           >
             <Card className="p-6 mb-6 bg-gradient-to-r from-purple-100 to-pink-100 backdrop-blur-sm border-0 shadow-lg rounded-3xl">
               <div className="text-center">
-                <h3 className="text-lg mb-3">🤖 AI Mood Detection</h3>
+                <h3 className="text-lg mb-3">🧠 Advanced AI Analysis</h3>
                 
                 <div className="flex items-center justify-center space-x-3 mb-3">
                   <motion.div
@@ -231,21 +241,112 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
                   </motion.div>
                   <div className="text-left">
                     <p className="font-medium capitalize text-gray-800">{detectedMood}</p>
-                    <p className="text-sm text-gray-600">Detected from your writing{confidence ? ` • ${(confidence * 100).toFixed(0)}%` : ''}</p>
+                    <p className="text-sm text-gray-600">
+                      Confidence: {Math.round(analysisResult.confidence * 100)}% • 
+                      Complexity: {analysisResult.complexity}
+                    </p>
                   </div>
                 </div>
                 
+                {/* Multiple Emotions Display */}
+                {Object.keys(analysisResult.emotions).length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-gray-600 mb-2">Detected Emotions:</p>
+                    <div className="flex flex-wrap gap-1 justify-center">
+                      {Object.entries(analysisResult.emotions)
+                        .filter(([_, score]) => score > 0.2)
+                        .sort(([_, a], [__, b]) => b - a)
+                        .slice(0, 5)
+                        .map(([emotion, score]) => (
+                          <span key={emotion} className="text-xs bg-white/70 px-2 py-1 rounded-full">
+                            {emotion} ({Math.round(score * 100)}%)
+                          </span>
+                        ))
+                      }
+                    </div>
+                  </div>
+                )}
+                
                 <p className="text-sm text-gray-700 bg-white/50 rounded-xl p-3">
-                  {moodExplanation}
+                  {analysisResult.explanation}
                 </p>
-                {triggers.length > 0 && (
-                  <div className="mt-3 p-3 rounded border-l-4 border-red-400 bg-red-50 text-red-700 text-sm">
-                    <strong>Trigger words detected:</strong> {triggers.join(', ')}
+                
+                {/* AI Suggestions */}
+                {analysisResult.suggestions.length > 0 && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-xl">
+                    <p className="text-sm font-medium text-blue-800 mb-2">💡 Suggestions for you:</p>
+                    <ul className="text-sm text-blue-700 space-y-1">
+                      {analysisResult.suggestions.map((suggestion, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="mr-2">•</span>
+                          <span>{suggestion}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {/* Risk Assessment */}
+                {analysisResult.riskLevel !== 'low' && (
+                  <div className={`mt-3 p-3 rounded border-l-4 text-sm ${
+                    analysisResult.riskLevel === 'high' 
+                      ? 'border-red-500 bg-red-50 text-red-700'
+                      : 'border-yellow-500 bg-yellow-50 text-yellow-700'
+                  }`}>
+                    <strong>⚠️ {analysisResult.riskLevel === 'high' ? 'High' : 'Medium'} Risk Detected</strong>
+                    {analysisResult.triggers.length > 0 && (
+                      <p>Concerning language: {analysisResult.triggers.join(', ')}</p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Trigger Words */}
+                {analysisResult.triggers.length > 0 && analysisResult.riskLevel === 'low' && (
+                  <div className="mt-3 p-3 rounded border-l-4 border-blue-400 bg-blue-50 text-blue-700 text-sm">
+                    <strong>Noted keywords:</strong> {analysisResult.triggers.join(', ')}
                   </div>
                 )}
               </div>
             </Card>
           </motion.div>
+        )}
+        
+        {/* Pet Mood Reflection */}
+        {detectedMood && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.6 }}
+            className="mb-6"
+          >
+            <Card className="p-4 bg-gradient-to-r from-green-100 to-blue-100 rounded-3xl">
+              <div className="text-center">
+                <h3 className="text-md mb-2">🐾 {petName}'s Mood</h3>
+                <div className="flex items-center justify-center space-x-2">
+                  <span className="text-2xl">{moodEmojis[detectedMood]}</span>
+                  <p className="text-sm text-gray-700">
+                    {petName} is feeling {detectedMood} because you are {detectedMood}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+        
+        {/* Analysis Loading */}
+        {isAnalyzing && (
+          <Card className="p-4 mb-6 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-3xl">
+            <div className="text-center">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="text-2xl mb-2"
+              >
+                🧠
+              </motion.div>
+              <p className="text-sm text-gray-600">Analyzing with advanced AI models...</p>
+            </div>
+          </Card>
         )}
 
         {/* Journal Entry */}
@@ -260,35 +361,44 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
             <Textarea
               value={journalText}
               onChange={handleTextChange}
-              placeholder="Write about your day, feelings, thoughts, or anything that comes to mind... I'll analyze your mood automatically! ✨"
+              placeholder="Write about your day, feelings, thoughts, or anything that comes to mind... Or use voice button below! ✨"
               className="min-h-[200px] border-0 bg-white/50 rounded-2xl resize-none focus:ring-2 focus:ring-purple-300 transition-all"
             />
             
-            {/* Audio journaling controls */}
-            <div className="mt-3 mb-2 flex items-center space-x-3">
-              <button
-                type="button"
-                onClick={toggleRecording}
-                style={{
-                  backgroundColor: isRecording ? '#dc2626' : '#0f172a',
-                  color: '#ffffff'
-                }}
-                className={`rounded-full px-4 py-2 transition-colors duration-150 inline-flex items-center justify-center ${isRecording ? 'hover:bg-red-700' : 'hover:bg-slate-800'}`}
+            {/* Voice Recording Status */}
+            {isListening && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-2 bg-red-100 text-red-700 px-3 py-1 rounded-full text-sm flex items-center justify-center space-x-2"
               >
-                {isRecording ? 'Stop Recording ⏹️' : 'Speak 🎤'}
-              </button>
-              {!supportsSpeech && (
-                <div className="text-sm text-gray-500">Speech recognition not available in this browser.</div>
-              )}
-              {interimTranscript && (
-                <div className="text-sm italic text-gray-600">Listening: {interimTranscript}</div>
-              )}
-            </div>
-
+                <motion.div
+                  animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 0.8, repeat: Infinity }}
+                  className="w-2 h-2 bg-red-500 rounded-full"
+                />
+                <span>🎙️ Listening...</span>
+              </motion.div>
+            )}
+            
+            {/* Character count and submit */}
             <div className="flex justify-between items-center mt-4">
-              <p className="text-sm text-gray-500">
-                {journalText.length} characters
-              </p>
+              <div className="flex items-center space-x-4">
+                <p className="text-sm text-gray-500">
+                  {journalText.length} characters
+                </p>
+                <Button
+                  type="button"
+                  onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+                  className={`text-xs px-4 py-2 rounded-lg font-medium shadow-md transition-all ${
+                    isRecording 
+                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse' 
+                      : 'bg-black hover:bg-gray-800 text-white'
+                  }`}
+                >
+                  {isRecording ? '🛑 Stop' : '🎤 Voice'}
+                </Button>
+              </div>
               
               <Button
                 onClick={handleSubmit}
@@ -321,11 +431,16 @@ export function JournalScreen({ onJournalSubmit, onBack, petName }: JournalScree
           className="text-center mt-6"
         >
           <p className="text-sm text-gray-600">
-            {petName} is learning about your emotions through AI sentiment analysis 🧠💕
+            {petName} is learning about your emotions through advanced AI analysis 🧠💕
           </p>
           {journalText.length > 0 && journalText.length < 10 && (
             <p className="text-xs text-gray-500 mt-2">
-              Write a bit more for mood detection to work ✍️
+              Write a bit more for advanced mood detection ✍️
+            </p>
+          )}
+          {analysisResult && analysisResult.riskLevel !== 'low' && (
+            <p className="text-xs text-blue-600 mt-2 font-medium">
+              💙 Remember: You're not alone. Support is available if you need it.
             </p>
           )}
         </motion.div>

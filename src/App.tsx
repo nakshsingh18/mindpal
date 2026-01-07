@@ -105,29 +105,31 @@ function AppDashboard() {
         console.log('Auth session user ID:', session.user.id);
         console.log('Auth user email:', session.user.email);
 
-        // Fetch user from the users table
-        const { data: userRow, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (userError) {
-          console.error('Error fetching user from users table:', {
-            code: userError.code,
-            message: userError.message,
-          });
-          // Log if it's a permission issue (likely RLS)
-          if (userError.message?.includes('403') || userError.message?.includes('permission')) {
-            console.warn('⚠️ RLS Permission Denied: auth.uid() may not equal users.id');
+        // Ensure user profile exists in database
+        if (session?.user?.id) {
+          try {
+            await supabase.rpc('ensure_user_profile', {
+              user_id: session.user.id,
+              user_email: session.user.email || '',
+              user_name: session.user.user_metadata?.full_name || session.user.user_metadata?.username || 'Guest'
+            });
+          } catch (err) {
+            console.warn('Could not ensure user profile:', err);
           }
-        } else {
-          console.log('User row fetched successfully:', userRow);
-          console.log('All user row columns:', Object.keys(userRow || {}));
         }
 
-        // If user doesn't exist in users table, create a row with defaults
-        let finalUser = userRow;
+        // Fetch user from both users and profiles tables
+        const [userResult, profileResult, journalResult] = await Promise.all([
+          supabase.from('users').select('*').eq('id', session.user.id).maybeSingle(),
+          supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle(),
+          supabase.from('journal_entries').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false })
+        ]);
+
+        let finalUser = userResult.data;
+        let finalProfile = profileResult.data;
+        const journalRows = journalResult.data || [];
+
+        // Create user record if doesn't exist
         if (!finalUser) {
           const newUser = {
             id: session.user.id,
@@ -136,7 +138,6 @@ function AppDashboard() {
             pet_id: null,
             coins: 100,
             streak_count: 0,
-            created_at: new Date(),
           };
 
           const { data: inserted, error: insertError } = await supabase
@@ -146,10 +147,35 @@ function AppDashboard() {
             .single();
 
           if (insertError) {
-            console.error('Error creating user row:', insertError);
-            finalUser = newUser; // Use defaults in memory if insert fails
+            console.error('Error creating user:', insertError);
+            finalUser = newUser;
           } else {
             finalUser = inserted;
+          }
+        }
+
+        // Create profile record if doesn't exist
+        if (!finalProfile) {
+          const newProfile = {
+            id: session.user.id,
+            username: finalUser.username,
+            name: session.user.user_metadata?.full_name || finalUser.username,
+            user_type: 'user',
+            is_premium: false,
+            coins: finalUser.coins || 100,
+          };
+
+          const { data: insertedProfile, error: profileError } = await supabase
+            .from('profiles')
+            .insert(newProfile)
+            .select()
+            .single();
+
+          if (profileError) {
+            console.error('Error creating profile:', profileError);
+            finalProfile = newProfile;
+          } else {
+            finalProfile = insertedProfile;
           }
         }
 
@@ -158,56 +184,11 @@ function AppDashboard() {
         
         // 1) Check session.user.user_metadata.role (set at signup)
         const metaRole = (session?.user?.user_metadata as any)?.role;
+        console.log('User metadata role:', metaRole);
+        
         if (metaRole === 'therapist') {
           console.log('User metadata indicates therapist role');
           userRole = 'therapist';
-          
-          // Ensure a therapist profile exists; if not, attempt to create a minimal profile
-          try {
-            const { data: existing, error: existErr } = await supabase
-              .from('therapists')
-              .select('id')
-              .eq('id', session.user.id)
-              .single();
-            if (!existing) {
-              console.log('No therapist profile found; creating minimal profile');
-              const nameFromMeta = (session?.user?.user_metadata as any)?.full_name || session.user.email || 'Therapist';
-              const { error: insertErr } = await supabase.from('therapists').insert({
-                id: session.user.id,
-                name: nameFromMeta,
-                specialization: null,
-                experience: null,
-                description: null,
-                avatar: null,
-                languages: [],
-                response_time: null,
-                price: null,
-                rating: 5,
-              });
-              if (insertErr) {
-                console.warn('Could not auto-create therapist profile (RLS or other):', insertErr.message);
-              } else {
-                console.log('Minimal therapist profile created');
-                
-                // Also create profiles entry
-                try {
-                  await supabase.from('profiles').insert({
-                    id: session.user.id,
-                    username: nameFromMeta,
-                    name: nameFromMeta,
-                    user_type: 'therapist',
-                    is_online: false,
-                    is_premium: false,
-                    rating: 5,
-                  });
-                } catch (profileErr) {
-                  console.warn('Could not create profiles table entry:', profileErr);
-                }
-              }
-            }
-          } catch (err) {
-            console.warn('Error while ensuring therapist profile exists:', err);
-          }
         } else {
           // 2) Check therapists table as a fallback
           try {
@@ -215,58 +196,68 @@ function AppDashboard() {
               .from('therapists')
               .select('id')
               .eq('id', session.user.id)
-              .single();
-            if (therapistError) {
-              console.warn('therapists select returned error:', {
-                code: (therapistError as any).code,
-                message: therapistError.message,
-              });
-            }
+              .maybeSingle();
+              
+            console.log('Therapist table check:', { therapistProfile, therapistError });
+            
             if (therapistProfile) {
               console.log('Found therapist profile, determined user is a therapist');
               userRole = 'therapist';
             }
           } catch (e) {
-            console.warn('Error checking therapists table for role (exception):', e);
+            console.warn('Error checking therapists table for role:', e);
           }
         }
         
-        // Set the role in finalUser for later use
+        // Set the role in both finalUser and finalProfile
         finalUser = { ...finalUser, user_type: userRole };
-
-        // Fetch journal entries for this user
-        const { data: journalRows, error: journalError } = await supabase
-          .from('journal_entries')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .order('created_at', { ascending: false });
-
-        if (journalError) {
-          console.error('Error fetching journal entries:', journalError);
+        if (finalProfile) {
+          finalProfile = { ...finalProfile, user_type: userRole };
         }
 
         // Convert journal_entries DB rows to JournalEntry format expected by the app
-        const journalEntries: JournalEntry[] = (journalRows || []).map((row: any) => ({
+        const journalEntries: JournalEntry[] = journalRows.map((row: any) => ({
           mood: row.mood || 'calm',
           content: row.entry_text || '',
           date: new Date(row.created_at),
           confidence: row.sentiment_score,
         }));
 
+        // Parse selected_pet from JSON if it exists
+        let selectedPet = null;
+        if (finalProfile?.selected_pet) {
+          try {
+            selectedPet = typeof finalProfile.selected_pet === 'string' 
+              ? JSON.parse(finalProfile.selected_pet) 
+              : finalProfile.selected_pet;
+          } catch (e) {
+            console.warn('Failed to parse selected_pet:', e);
+          }
+        }
+
         const userData: AppUser = {
           id: session.user.id,
           email: session.user.email,
           is_anonymous: session.user.is_anonymous,
-          name: session.user.user_metadata?.full_name || 'Guest',
-          username: finalUser?.username || session.user.user_metadata?.username || 'Guest',
-          user_type: finalUser?.user_type || 'user',
-          is_Premium: finalUser?.is_premium || false,
-          selected_pet: finalUser?.selected_pet,
-          coins: finalUser?.coins || 100,
+          name: finalProfile?.name || session.user.user_metadata?.full_name || 'Guest',
+          username: finalProfile?.username || finalUser?.username || 'Guest',
+          user_type: finalProfile?.user_type || 'user',
+          is_Premium: finalProfile?.is_premium || false,
+          selected_pet: selectedPet,
+          coins: finalProfile?.coins || finalUser?.coins || 100,
           journal_entries: journalEntries,
-          pet_mood: finalUser?.pet_mood || 'calm',
+          pet_mood: finalProfile?.pet_mood || 'calm',
         };
 
+        console.log('Journal entries loaded from DB:', journalEntries.length, journalEntries);
+
+        console.log('Final user data before setting:', {
+          id: userData.id,
+          email: userData.email,
+          user_type: userData.user_type,
+          name: userData.name
+        });
+        
         console.log('Setting user with type:', userData.user_type, 'Full userData:', userData);
         setUser(userData);
         // Pre-load journal entries into local state
@@ -337,15 +328,20 @@ function AppDashboard() {
   // Load data from user profile on user change
   useEffect(() => {
     if (user) {
+      console.log('User loaded, type:', user.user_type);
+      
+      // If user is therapist, don't set any other state - just let the main render handle it
+      if (user.user_type === 'therapist') {
+        console.log('User is therapist, skipping pet/user setup');
+        return;
+      }
+      
+      // Only set user-specific state if user is not a therapist
       setSelectedPet(user.selected_pet || null);
       setCoins(user.coins || 100);
       setJournalEntries(user.journal_entries || []);
       setPetMood((user.pet_mood as PetMood) || "calm");
       setis_Premium(user.is_Premium || false);
-
-      if (user.user_type === 'therapist') {
-        return; // Therapist will be handled by the main return logic
-      }
 
       if (user.selected_pet) {
         setCurrentScreen("home");
@@ -353,11 +349,41 @@ function AppDashboard() {
         setCurrentScreen("pet-selection");
       }
     } else {
-        setCurrentScreen("pet-selection");
+      setCurrentScreen("pet-selection");
     }
   }, [user]);
 
-  // Save data to Supabase (users table or journal_entries table)
+  // Function to refresh journal entries from database
+  const refreshJournalEntries = async () => {
+    if (!user) return;
+    
+    try {
+      const { data: journalRows, error } = await supabase
+        .from('journal_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error refreshing journal entries:', error);
+        return;
+      }
+      
+      const entries: JournalEntry[] = (journalRows || []).map((row: any) => ({
+        mood: row.mood || 'calm',
+        content: row.entry_text || '',
+        date: new Date(row.created_at),
+        confidence: row.sentiment_score,
+      }));
+      
+      console.log('Refreshed journal entries:', entries.length, entries);
+      setJournalEntries(entries);
+    } catch (err) {
+      console.error('Error refreshing journal entries:', err);
+    }
+  };
+
+  // Save data to Supabase - simplified to avoid deadlocks
   const saveData = async (data: any) => {
     if (!user) {
       console.debug('saveData skipped: no user', data);
@@ -369,64 +395,35 @@ function AppDashboard() {
     }
 
     try {
-      // Extract fields that go to the users table
-      const userFields: any = {};
-      if ('coins' in data) userFields.coins = data.coins;
-      // Note: pet_id should be an integer ID from the pets table.
-      // selectedPet here is a Pet object, not a DB id, so we skip it for now.
-      // TODO: Implement proper pet ID mapping after setting up pets table
-      // if ('selected_pet' in data && data.selected_pet?.id) userFields.pet_id = data.selected_pet.id;
-      if ('pet_mood' in data) userFields.pet_mood = data.pet_mood;
-      if ('is_premium' in data) userFields.is_premium = data.is_premium;
+      // Only update profiles table to avoid conflicts
+      const profileFields: any = {};
 
-      // Update users table if there are user fields to save
-      if (Object.keys(userFields).length > 0) {
-        console.debug('Saving to users table:', { userId: user.id, fields: userFields });
-        
-        const { data: updated, error: userError } = await supabase
-          .from('users')
-          .update(userFields)
-          .eq('id', user.id)
-          .select()
-          .single();
-
-        if (userError) {
-            console.error('Error saving to users table:', userError);
-            if (userError.message?.includes('permission') || userError.message?.includes('policy')) {
-              console.warn('⚠️ RLS POLICY BLOCKED UPDATE: Ensure auth.uid() matches users.id');
-            }
-
-            // Fallback: some deployments store profile fields in `profiles` table
-            // (e.g., `is_premium` and `coins` may live on `profiles`). Try updating `profiles`.
-            try {
-              if (Object.keys(userFields).length > 0) {
-                console.debug('Attempting fallback update to profiles table for fields:', userFields);
-                const { data: profUpdated, error: profErr } = await supabase
-                  .from('profiles')
-                  .update(userFields)
-                  .eq('id', user.id)
-                  .select()
-                  .single();
-
-                if (profErr) {
-                  console.error('Profiles table fallback update failed:', profErr);
-                  return { error: userError };
-                }
-
-                console.debug('Profiles table updated via fallback:', profUpdated);
-                return { success: true };
-              }
-            } catch (fallbackErr) {
-              console.error('Fallback update to profiles table threw error:', fallbackErr);
-              return { error: userError };
-            }
-
-            return { error: userError };
-          }
-
-        console.debug('User data saved successfully:', updated);
+      if ('coins' in data) {
+        profileFields.coins = data.coins;
+      }
+      if ('is_premium' in data) {
+        profileFields.is_premium = data.is_premium;
+      }
+      if ('pet_mood' in data) {
+        profileFields.pet_mood = data.pet_mood;
+      }
+      if ('selected_pet' in data) {
+        profileFields.selected_pet = JSON.stringify(data.selected_pet);
       }
 
+      if (Object.keys(profileFields).length > 0) {
+        const { error } = await supabase
+          .from('profiles')
+          .update(profileFields)
+          .eq('id', user.id);
+        
+        if (error) {
+          console.error('Error saving data:', error);
+          return { error };
+        }
+      }
+
+      console.debug('Data saved successfully');
       return { success: true };
     } catch (err) {
       console.error('Unexpected saveData error:', err);
@@ -484,34 +481,73 @@ function AppDashboard() {
       calm: "calm",
       sad: "sad",
       anxious: "sad",
-      angry: "sad",
-      irritated: "sad",
-      frustrated: "sad",
+      angry: "angry",
+      irritated: "angry",
+      frustrated: "angry",
     };
     const newPetMood = moodMapping[journalMood] || "calm";
     setPetMood(newPetMood);
+    
+    // Save pet mood to database
+    if (user && !user.is_anonymous) {
+      saveData({ pet_mood: newPetMood }).catch(err => 
+        console.warn('Failed to save pet mood:', err)
+      );
+    }
   };
 
   const handlePetSelected = (pet: Pet) => {
     setSelectedPet(pet);
     setShowWelcomeAnimation(true);
+    
+    // Save pet selection in background (don't block UI)
+    if (user && !user.is_anonymous) {
+      saveData({ selected_pet: pet }).catch(err => 
+        console.warn('Failed to save pet selection:', err)
+      );
+    }
+    
     setTimeout(() => {
       setCurrentScreen("home");
       setShowWelcomeAnimation(false);
     }, 2000);
   };
 
-  const handleJournalSubmit = (entry: JournalEntry) => {
+  const handleJournalSubmit = async (entry: JournalEntry) => {
+    console.log('=== JOURNAL SUBMIT START ===');
+    console.log('Entry received:', entry);
+    console.log('User:', user?.id, user?.email);
+    
+    if (!user) {
+      console.error('❌ No user for journal submission');
+      alert('Error: No user logged in');
+      return;
+    }
+
+    if (user.is_anonymous) {
+      console.warn('⚠️ Anonymous user - journal will not be saved to database');
+    }
+
     setLastJournaled(entry.date);
     updatePetMood(entry.mood);
 
-    // Insert journal entry into journal_entries table
-    (async () => {
+    try {
+      console.log('📝 Inserting journal entry to database...');
+      console.log('Insert data:', {
+        user_id: user.id,
+        entry_text: entry.content,
+        mood: entry.mood,
+        sentiment_score: entry.confidence || null,
+      });
+      
+      console.log('📝 Attempting database insert...');
+      
+      let inserted = null;
       try {
-        const { data: inserted, error: insertError } = await supabase
+        const result = await supabase
           .from('journal_entries')
           .insert({
-            user_id: user?.id,
+            user_id: user.id,
             entry_text: entry.content,
             mood: entry.mood,
             sentiment_score: entry.confidence || null,
@@ -519,91 +555,62 @@ function AppDashboard() {
           .select()
           .single();
 
-        if (insertError) {
-          console.error('Error inserting journal entry:', insertError);
-          // Fallback: try to append journal entry to `profiles`.`journal_entries` (JSONB)
-          try {
-            const { data: profileRow, error: profileErr } = await supabase
-              .from('profiles')
-              .select('journal_entries')
-              .eq('id', user.id)
-              .single();
+        console.log('Database response:', result);
 
-            if (profileErr) {
-              console.error('Could not load profiles row for fallback journal save:', profileErr);
-              return;
-            }
-
-            const existing = Array.isArray(profileRow?.journal_entries) ? profileRow.journal_entries : [];
-            const fallbackEntry = {
-              mood: entry.mood,
-              content: entry.content,
-              date: new Date().toISOString(),
-              confidence: entry.confidence || null,
-            };
-
-            const updatedEntries = [...existing, fallbackEntry];
-
-            const { error: profUpdateErr } = await supabase
-              .from('profiles')
-              .update({ journal_entries: updatedEntries })
-              .eq('id', user.id);
-
-            if (profUpdateErr) {
-              console.error('Failed to save journal entry to profiles journal_entries:', profUpdateErr);
-              return;
-            }
-
-            console.debug('Journal entry saved to profiles.journal_entries as fallback');
-          } catch (fbErr) {
-            console.error('Fallback journal save threw error:', fbErr);
-          }
+        if (result.error) {
+          console.error('❌ Database insert error:', result.error);
+          alert(`Database error: ${result.error.message}`);
           return;
         }
 
-        console.debug('Journal entry saved:', inserted);
-
-        // Add the new entry to local state (update after DB insert succeeds)
-        const newEntries = [...journalEntries, entry];
-        setJournalEntries(newEntries);
-
-        // Reward for journaling: add 25 coins
-        const newCoins = coins + 25;
-        setCoins(newCoins);
-        await saveData({ coins: newCoins }).catch((e) => console.error('saveData error (coins):', e));
-
-        // Check for mood-based rewards
-        const analytics = analyzeMoods(newEntries);
-        const unclaimedRewards = analytics.rewards.filter(
-          (reward) => {
-            // Simple check - in a real app you'd track claimed rewards properly
-            return (
-              reward.type === "positive_streak" ||
-              reward.type === "consistency_bonus"
-            );
-          },
-        );
-
-        if (unclaimedRewards.length > 0) {
-          setCurrentMoodReward(unclaimedRewards[0]);
-          setTimeout(() => setShowMoodReward(true), 1000);
-        }
-
-        setCurrentScreen("home");
-
-        // Show confetti animation
-        setTimeout(() => {
-          const confetti = document.createElement("div");
-          confetti.innerHTML = "🎉✨🎊";
-          confetti.className =
-            "fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-6xl pointer-events-none z-50";
-          document.body.appendChild(confetti);
-          setTimeout(() => confetti.remove(), 2000);
-        }, 500);
-      } catch (err) {
-        console.error('Error submitting journal:', err);
+        inserted = result.data;
+        console.log('✅ Journal entry saved to database:', inserted);
+      } catch (dbError) {
+        console.error('❌ Database exception:', dbError);
+        alert(`Database exception: ${dbError}`);
+        return;
       }
-    })();
+
+      // Add to local state immediately
+      const newEntry = {
+        mood: entry.mood,
+        content: entry.content,
+        date: new Date(inserted.created_at),
+        confidence: entry.confidence,
+        aiAnalysis: entry.aiAnalysis
+      };
+      
+      setJournalEntries(prev => [newEntry, ...prev]);
+      console.log('✅ Added to local state');
+
+      // Refresh from database to double-check
+      setTimeout(async () => {
+        console.log('🔄 Refreshing from database...');
+        await refreshJournalEntries();
+      }, 1000);
+
+      // Reward for journaling: add 25 coins
+      const newCoins = coins + 25;
+      setCoins(newCoins);
+      await saveData({ coins: newCoins });
+      console.log('✅ Coins updated');
+
+      setCurrentScreen("home");
+      console.log('=== JOURNAL SUBMIT SUCCESS ===');
+
+      // Show confetti animation
+      setTimeout(() => {
+        const confetti = document.createElement("div");
+        confetti.innerHTML = "🎉✨🎊";
+        confetti.className =
+          "fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-6xl pointer-events-none z-50";
+        document.body.appendChild(confetti);
+        setTimeout(() => confetti.remove(), 2000);
+      }, 500);
+    } catch (err) {
+      console.error('❌ Error submitting journal:', err);
+      alert(`Submission error: ${err}`);
+    }
   };
 
   const getStreakCount = () => {
@@ -650,7 +657,7 @@ function AppDashboard() {
 
   const resetToPetSelection = async () => {
      if(user && !user.is_anonymous) {
-        await supabase.from('profiles').update({ selected_pet: null }).eq('id', user.id);
+        await saveData({ selected_pet: null });
      }
     setCurrentScreen("pet-selection");
     setSelectedPet(null);
@@ -778,6 +785,10 @@ function AppDashboard() {
         coins={coins}
         onCoinsUpdate={setCoins}
         onBack={() => setCurrentScreen("home")}
+        userId={user.id}
+        petName={selectedPet?.name || "Your Pet"}
+        petType={selectedPet?.type || 'dog'}
+        onJournalSubmit={handleJournalSubmit}
       />
     );
   }
@@ -859,20 +870,79 @@ function AppDashboard() {
   // Home Dashboard 
   return (
     <div className="min-h-screen p-6 relative overflow-hidden bg-gradient-to-br from-violet-100 via-blue-50 to-teal-100">
-      {/* Background decorations */}
+      {/* Enhanced Background decorations */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
-        <div className="absolute top-16 left-8 text-6xl animate-pulse">
+        {/* Floating particles */}
+        {[...Array(12)].map((_, i) => (
+          <motion.div
+            key={i}
+            className="absolute"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+            }}
+            animate={{
+              y: [0, -30, 0],
+              x: [0, Math.random() * 20 - 10, 0],
+              rotate: [0, 360],
+              scale: [1, 1.2, 1],
+              opacity: [0.2, 0.5, 0.2],
+            }}
+            transition={{
+              duration: 8 + Math.random() * 4,
+              repeat: Infinity,
+              delay: Math.random() * 2,
+              ease: "easeInOut",
+            }}
+          >
+            <div className={`text-${4 + Math.floor(Math.random() * 3)}xl`}>
+              {["🌸", "✨", "🌈", "💫", "🦋", "🌟", "💜", "🌺"][Math.floor(Math.random() * 8)]}
+            </div>
+          </motion.div>
+        ))}
+        
+        {/* Larger decorative elements */}
+        <motion.div 
+          className="absolute top-16 left-8 text-6xl"
+          animate={{ 
+            rotate: [0, 10, -10, 0],
+            scale: [1, 1.1, 1],
+          }}
+          transition={{ duration: 4, repeat: Infinity }}
+        >
           🌸
-        </div>
-        <div className="absolute top-32 right-16 text-5xl animate-bounce delay-1000">
+        </motion.div>
+        <motion.div 
+          className="absolute top-32 right-16 text-5xl"
+          animate={{ 
+            y: [0, -15, 0],
+            rotate: [0, 180, 360],
+          }}
+          transition={{ duration: 6, repeat: Infinity, delay: 1 }}
+        >
           ✨
-        </div>
-        <div className="absolute bottom-40 left-12 text-7xl animate-pulse delay-2000">
+        </motion.div>
+        <motion.div 
+          className="absolute bottom-40 left-12 text-7xl"
+          animate={{ 
+            scale: [1, 1.2, 1],
+            opacity: [0.2, 0.4, 0.2],
+          }}
+          transition={{ duration: 5, repeat: Infinity, delay: 2 }}
+        >
           🌈
-        </div>
-        <div className="absolute bottom-16 right-8 text-4xl animate-bounce delay-500">
+        </motion.div>
+        <motion.div 
+          className="absolute bottom-16 right-8 text-4xl"
+          animate={{ 
+            y: [0, -20, 0],
+            x: [0, 10, 0],
+            rotate: [0, -180, 0],
+          }}
+          transition={{ duration: 7, repeat: Infinity, delay: 0.5 }}
+        >
           💫
-        </div>
+        </motion.div>
       </div>
 
       <div className="relative z-10 max-w-4xl mx-auto">
@@ -895,23 +965,38 @@ function AppDashboard() {
 
           <div className="flex items-center space-x-4">
             {/* Add button to go back to pet selection */}
-            <Button
-              onClick={resetToPetSelection}
-              variant="outline"
-              size="sm"
-              className="rounded-full px-3 py-1 text-xs"
-            >
-              🔄 Change Pet
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={resetToPetSelection}
+                variant="outline"
+                size="sm"
+                className="rounded-full px-3 py-1 text-xs hover:bg-white/90 transition-all duration-200"
+              >
+                🔄 Change Pet
+              </Button>
+            </motion.div>
             
-            <Button
-              onClick={handleLogout}
-              variant="destructive"
-              size="sm"
-              className="rounded-full px-3 py-1 text-xs"
-            >
-              Logout
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={refreshJournalEntries}
+                variant="outline"
+                size="sm"
+                className="rounded-full px-3 py-1 text-xs hover:bg-white/90 transition-all duration-200"
+              >
+                🔄 Refresh
+              </Button>
+            </motion.div>
+            
+            <motion.div whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={handleLogout}
+                variant="destructive"
+                size="sm"
+                className="rounded-full px-3 py-1 text-xs hover:bg-red-600 transition-all duration-200"
+              >
+                Logout
+              </Button>
+            </motion.div>
 
             {is_Premium && (
               <div className="flex items-center space-x-2 bg-gradient-to-r from-pink-200 to-purple-300 px-3 py-1 rounded-full">
@@ -1011,28 +1096,48 @@ function AppDashboard() {
       style={{ overflow: "hidden" }}
     >
       <div className="p-4 md:p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <motion.div whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }}>
+        <motion.div 
+          whileHover={{ scale: 1.02, y: -2 }} 
+          whileTap={{ scale: 0.98 }}
+          className="group"
+        >
           <Button
             onClick={() => setCurrentScreen("journal")}
-            className="w-full h-16 rounded-2xl bg-gradient-to-r from-blue-400 to-blue-500 text-white
-                       shadow-md hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-3 relative"
+            className="w-full h-16 rounded-2xl bg-gradient-to-r from-blue-400 to-blue-500 hover:from-blue-500 hover:to-blue-600 text-white
+                       shadow-md hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-3 relative overflow-hidden"
           >
-            <span className="text-2xl">📔</span>
-            <span className="text-lg font-medium">Write Journal</span>
+            <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+            <motion.span 
+              className="text-2xl relative z-10"
+              whileHover={{ scale: 1.2, rotate: 10 }}
+            >
+              📔
+            </motion.span>
+            <span className="text-lg font-medium relative z-10">Write Journal</span>
             {!is_Premium && journalEntries.length > 0 && (
               <span className="absolute top-2 right-3 text-[10px] px-2 py-0.5 rounded-full bg-white/20">🤖 AI</span>
             )}
           </Button>
         </motion.div>
 
-        <motion.div whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }}>
+        <motion.div 
+          whileHover={{ scale: 1.02, y: -2 }} 
+          whileTap={{ scale: 0.98 }}
+          className="group"
+        >
           <Button
             onClick={() => setCurrentScreen("quests")}
-            className="w-full h-16 rounded-2xl bg-gradient-to-r from-green-400 to-emerald-500 text-white
-                       shadow-md hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-3"
+            className="w-full h-16 rounded-2xl bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-white
+                       shadow-md hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-3 relative overflow-hidden"
           >
-            <span className="text-2xl">🎯</span>
-            <span className="text-lg font-medium">Daily Quests</span>
+            <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+            <motion.span 
+              className="text-2xl relative z-10"
+              whileHover={{ scale: 1.2, rotate: -10 }}
+            >
+              🎯
+            </motion.span>
+            <span className="text-lg font-medium relative z-10">Daily Quests</span>
           </Button>
         </motion.div>
       </div>

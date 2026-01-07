@@ -64,24 +64,52 @@ export function PetSelection({ onPetSelected }: PetSelectionProps) {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.1 }}
-            whileHover={{ scale: 1.05 }}
+            whileHover={{ scale: 1.05, y: -5 }}
             whileTap={{ scale: 0.95 }}
           >
             <button
               onClick={() => setSelectedPet(pet)}
-              className={`w-full p-8 rounded-3xl shadow-lg transition-all duration-200 ${
+              className={`w-full p-8 rounded-3xl shadow-lg transition-all duration-300 group relative overflow-hidden ${
                 selectedPet?.name === pet.name
-                  ? "ring-4 ring-purple-500 bg-white scale-105"
-                  : "bg-white/80 hover:bg-white"
+                  ? "ring-4 ring-purple-500 bg-white scale-105 shadow-2xl"
+                  : "bg-white/80 hover:bg-white hover:shadow-2xl"
               }`}
             >
-              <div className={`text-8xl mb-4 p-8 rounded-full ${pet.color} inline-block`}>
-                {pet.emoji}
-              </div>
-              <h3 className="text-2xl font-medium mb-2 text-gray-800">
+              {/* Animated background gradient on hover */}
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-100 to-pink-100 opacity-0 group-hover:opacity-30 transition-opacity duration-300 rounded-3xl"></div>
+              
+              <motion.div 
+                className={`text-8xl mb-4 p-8 rounded-full ${pet.color} inline-block relative z-10`}
+                whileHover={{ rotate: [0, -10, 10, 0], scale: 1.1 }}
+                transition={{ duration: 0.5 }}
+              >
+                <motion.span
+                  animate={selectedPet?.name === pet.name ? { scale: [1, 1.2, 1] } : {}}
+                  transition={{ duration: 0.6, repeat: selectedPet?.name === pet.name ? Infinity : 0, repeatDelay: 2 }}
+                >
+                  {pet.emoji}
+                </motion.span>
+              </motion.div>
+              
+              <motion.h3 
+                className="text-2xl font-medium mb-2 text-gray-800 relative z-10"
+                whileHover={{ scale: 1.05 }}
+              >
                 {pet.name}
-              </h3>
-              <p className="text-gray-600">{pet.description}</p>
+              </motion.h3>
+              
+              <p className="text-gray-600 relative z-10">{pet.description}</p>
+              
+              {/* Selection indicator */}
+              {selectedPet?.name === pet.name && (
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="absolute top-4 right-4 bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg z-10"
+                >
+                  ✓
+                </motion.div>
+              )}
             </button>
           </motion.div>
         ))}

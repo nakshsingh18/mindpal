@@ -224,29 +224,53 @@ export function PlayScreen({ pet, onBack, onCoinsUpdate, coins }: PlayScreenProp
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.4 + index * 0.1 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                whileHover={{ scale: 1.03, y: -5 }}
+                whileTap={{ scale: 0.97 }}
+                className="group"
               >
-                <Card className="p-4 bg-white/80 backdrop-blur-sm border-0 shadow-lg rounded-2xl hover:shadow-xl transition-all cursor-pointer">
+                <Card className="p-4 bg-white/80 backdrop-blur-sm border-0 shadow-lg rounded-2xl hover:shadow-2xl transition-all duration-300 cursor-pointer relative overflow-hidden">
+                  {/* Animated background gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-100 to-pink-100 opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
+                  
                   <Button
                     onClick={() => handlePlayActivity(activity)}
                     variant="ghost"
-                    className="w-full h-full p-0 flex flex-col items-center text-left"
+                    className="w-full h-full p-0 flex flex-col items-center text-left relative z-10 hover:bg-transparent"
                   >
-                    <div className="text-4xl mb-3">{activity.emoji}</div>
-                    <h4 className="font-medium mb-2">{activity.name}</h4>
-                    <p className="text-sm text-gray-600 mb-3">
+                    <motion.div 
+                      className="text-4xl mb-3"
+                      whileHover={{ scale: 1.2, rotate: 10 }}
+                      transition={{ type: "spring", stiffness: 300 }}
+                    >
+                      {activity.emoji}
+                    </motion.div>
+                    
+                    <motion.h4 
+                      className="font-medium mb-2 text-lg"
+                      whileHover={{ scale: 1.05 }}
+                    >
+                      {activity.name}
+                    </motion.h4>
+                    
+                    <p className="text-sm text-gray-600 mb-3 text-center">
                       {activity.description}
                     </p>
+                    
                     <div className="flex items-center space-x-4 text-xs">
-                      <div className="flex items-center space-x-1">
+                      <motion.div 
+                        className="flex items-center space-x-1"
+                        whileHover={{ scale: 1.1 }}
+                      >
                         <span>💖</span>
                         <span>+{activity.happiness}</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
+                      </motion.div>
+                      <motion.div 
+                        className="flex items-center space-x-1"
+                        whileHover={{ scale: 1.1 }}
+                      >
                         <span>🪙</span>
                         <span>+{activity.coinReward}</span>
-                      </div>
+                      </motion.div>
                     </div>
                   </Button>
                 </Card>

@@ -1,287 +1,177 @@
-import { AnalyzedMood } from './sentimentAnalysis';
-
 export interface JournalEntry {
-  mood: AnalyzedMood;
+  mood: string;
   content: string;
-  date: Date;
+  date: Date | string;
   confidence?: number;
   aiAnalysis?: string;
+  fineEmotions?: Array<{ label: string; score: number }>;
+  sarcastic?: boolean;
 }
 
 export interface MoodAnalytics {
   totalEntries: number;
-  positiveCount: number;
-  negativeCount: number;
-  neutralCount: number;
+  dominantMood: string;
   positivePercentage: number;
-  negativePercentage: number;
   neutralPercentage: number;
-  moodCounts: { [key in AnalyzedMood]: number };
-  recentTrend: 'improving' | 'declining' | 'stable';
-  dominantMood: AnalyzedMood;
-  suggestions: string[];
+  negativePercentage: number;
+  moodCounts: Record<string, number>;
+  topFineEmotions: Array<{ label: string; score: number }>;
   rewards: MoodReward[];
 }
 
 export interface MoodReward {
-  type: 'positive_streak' | 'balance_achievement' | 'growth_milestone' | 'consistency_bonus';
+  type: string;
   title: string;
   description: string;
-  coinReward: number;
   emoji: string;
+  coinReward: number;
 }
 
-// Categorize moods into positive, negative, and neutral
-const POSITIVE_MOODS: AnalyzedMood[] = ['happy', 'excited', 'energetic', 'content'];
-const NEGATIVE_MOODS: AnalyzedMood[] = ['sad', 'anxious', 'angry', 'irritated', 'frustrated'];
-const NEUTRAL_MOODS: AnalyzedMood[] = ['calm'];
-
-export function categorizeMood(mood: AnalyzedMood): 'positive' | 'negative' | 'neutral' {
-  if (POSITIVE_MOODS.includes(mood)) return 'positive';
-  if (NEGATIVE_MOODS.includes(mood)) return 'negative';
-  return 'neutral';
-}
+const POSITIVE_MOODS = ['happy', 'excited', 'love', 'grateful', 'hopeful', 'pride', 'content', 'energetic'];
+const NEUTRAL_MOODS = ['calm', 'confused', 'bored', 'nostalgic'];
+const NEGATIVE_MOODS = ['sad', 'angry', 'anxious', 'frustrated', 'lonely', 'disappointed', 'embarrassed', 'overwhelmed', 'guilt', 'shame', 'disgust', 'envy', 'jealous'];
 
 export function analyzeMoods(entries: JournalEntry[]): MoodAnalytics {
   if (entries.length === 0) {
     return {
       totalEntries: 0,
-      positiveCount: 0,
-      negativeCount: 0,
-      neutralCount: 0,
+      dominantMood: 'neutral',
       positivePercentage: 0,
-      negativePercentage: 0,
       neutralPercentage: 0,
-      moodCounts: {
-        happy: 0, excited: 0, energetic: 0, content: 0,
-        sad: 0, anxious: 0, angry: 0, irritated: 0, frustrated: 0,
-        calm: 0
-      },
-      recentTrend: 'stable',
-      dominantMood: 'calm',
-      suggestions: [],
+      negativePercentage: 0,
+      moodCounts: {},
+      topFineEmotions: [],
       rewards: []
     };
   }
 
-  // Count moods
-  const moodCounts: { [key in AnalyzedMood]: number } = {
-    happy: 0, excited: 0, energetic: 0, content: 0,
-    sad: 0, anxious: 0, angry: 0, irritated: 0, frustrated: 0,
-    calm: 0
-  };
-
-  let positiveCount = 0;
-  let negativeCount = 0;
-  let neutralCount = 0;
+  const moodCounts: Record<string, number> = {};
+  const allFineEmotions: Array<{ label: string; score: number }> = [];
 
   entries.forEach(entry => {
-    moodCounts[entry.mood]++;
-    const category = categorizeMood(entry.mood);
-    if (category === 'positive') positiveCount++;
-    else if (category === 'negative') negativeCount++;
-    else neutralCount++;
+    moodCounts[entry.mood] = (moodCounts[entry.mood] || 0) + 1;
+    
+    if (entry.fineEmotions) {
+      allFineEmotions.push(...entry.fineEmotions);
+    }
   });
 
-  const totalEntries = entries.length;
-  const positivePercentage = Math.round((positiveCount / totalEntries) * 100);
-  const negativePercentage = Math.round((negativeCount / totalEntries) * 100);
-  const neutralPercentage = Math.round((neutralCount / totalEntries) * 100);
+  const dominantMood = Object.entries(moodCounts)
+    .sort(([,a], [,b]) => b - a)[0]?.[0] || 'neutral';
 
-  // Find dominant mood
-  const dominantMood = Object.entries(moodCounts).reduce((a, b) => 
-    moodCounts[a[0] as AnalyzedMood] > moodCounts[b[0] as AnalyzedMood] ? a : b
-  )[0] as AnalyzedMood;
+  let positiveCount = 0;
+  let neutralCount = 0;
+  let negativeCount = 0;
 
-  // Analyze recent trend (last 7 entries vs previous 7)
-  const recentTrend = analyzeRecentTrend(entries);
+  Object.entries(moodCounts).forEach(([mood, count]) => {
+    if (POSITIVE_MOODS.includes(mood)) positiveCount += count;
+    else if (NEUTRAL_MOODS.includes(mood)) neutralCount += count;
+    else if (NEGATIVE_MOODS.includes(mood)) negativeCount += count;
+  });
 
-  // Generate suggestions based on mood patterns
-  const suggestions = generateSuggestions(moodCounts, positivePercentage, negativePercentage);
+  const total = entries.length;
+  const positivePercentage = Math.round((positiveCount / total) * 100);
+  const neutralPercentage = Math.round((neutralCount / total) * 100);
+  const negativePercentage = Math.round((negativeCount / total) * 100);
 
-  // Generate rewards based on positive patterns
-  const rewards = generateRewards(entries, positivePercentage, moodCounts);
+  // Aggregate fine emotions
+  const emotionMap: Record<string, number[]> = {};
+  allFineEmotions.forEach(emotion => {
+    if (!emotionMap[emotion.label]) emotionMap[emotion.label] = [];
+    emotionMap[emotion.label].push(emotion.score);
+  });
+
+  const topFineEmotions = Object.entries(emotionMap)
+    .map(([label, scores]) => ({
+      label,
+      score: scores.reduce((a, b) => a + b, 0) / scores.length
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  const rewards = generateRewards(entries, moodCounts, positivePercentage);
 
   return {
-    totalEntries,
-    positiveCount,
-    negativeCount,
-    neutralCount,
-    positivePercentage,
-    negativePercentage,
-    neutralPercentage,
-    moodCounts,
-    recentTrend,
+    totalEntries: total,
     dominantMood,
-    suggestions,
+    positivePercentage,
+    neutralPercentage,
+    negativePercentage,
+    moodCounts,
+    topFineEmotions,
     rewards
   };
 }
 
-function analyzeRecentTrend(entries: JournalEntry[]): 'improving' | 'declining' | 'stable' {
-  if (entries.length < 6) return 'stable';
-
-  const recent = entries.slice(-7);
-  const previous = entries.slice(-14, -7);
-
-  if (previous.length === 0) return 'stable';
-
-  const recentPositive = recent.filter(e => categorizeMood(e.mood) === 'positive').length;
-  const previousPositive = previous.filter(e => categorizeMood(e.mood) === 'positive').length;
-
-  const recentPositiveRatio = recentPositive / recent.length;
-  const previousPositiveRatio = previousPositive / previous.length;
-
-  const difference = recentPositiveRatio - previousPositiveRatio;
-
-  if (difference > 0.15) return 'improving';
-  if (difference < -0.15) return 'declining';
-  return 'stable';
-}
-
-function generateSuggestions(
-  moodCounts: { [key in AnalyzedMood]: number },
-  positivePercentage: number,
-  negativePercentage: number
-): string[] {
-  const suggestions: string[] = [];
-
-  // If negative moods are dominant
-  if (negativePercentage > 60) {
-    suggestions.push("Try spending 10 minutes in nature or by a window each day");
-    suggestions.push("Practice deep breathing: inhale for 4, hold for 4, exhale for 6");
-    suggestions.push("Write down 3 things you're grateful for each morning");
-  }
-
-  // Specific mood-based suggestions
-  if (moodCounts.angry > 2) {
-    suggestions.push("When feeling angry, try the 5-4-3-2-1 grounding technique");
-    suggestions.push("Physical exercise can help release anger constructively");
-  }
-
-  if (moodCounts.anxious > 2) {
-    suggestions.push("Progressive muscle relaxation can help with anxiety");
-    suggestions.push("Limit caffeine and try herbal teas like chamomile");
-  }
-
-  if (moodCounts.frustrated > 2) {
-    suggestions.push("Break big tasks into smaller, manageable steps");
-    suggestions.push("Take regular breaks to prevent overwhelm");
-  }
-
-  if (moodCounts.sad > 3) {
-    suggestions.push("Connect with friends or family - social support matters");
-    suggestions.push("Engage in activities that brought you joy before");
-  }
-
-  // Positive reinforcement
-  if (positivePercentage > 70) {
-    suggestions.push("You're doing great! Keep up the positive habits");
-    suggestions.push("Share your positivity with others - it's contagious!");
-  }
-
-  // Balanced suggestions
-  if (positivePercentage >= 40 && positivePercentage <= 60) {
-    suggestions.push("You're maintaining good emotional balance - that's healthy!");
-    suggestions.push("Consider adding one small self-care activity to your routine");
-  }
-
-  return suggestions.slice(0, 4); // Limit to 4 suggestions
-}
-
-function generateRewards(
-  entries: JournalEntry[],
-  positivePercentage: number,
-  moodCounts: { [key in AnalyzedMood]: number }
-): MoodReward[] {
+function generateRewards(entries: JournalEntry[], moodCounts: Record<string, number>, positivePercentage: number): MoodReward[] {
   const rewards: MoodReward[] = [];
 
-  // Positive streak reward
-  const recentPositiveStreak = calculatePositiveStreak(entries);
-  if (recentPositiveStreak >= 3) {
-    rewards.push({
-      type: 'positive_streak',
-      title: `${recentPositiveStreak}-Day Positive Streak!`,
-      description: `You've maintained positive moods for ${recentPositiveStreak} consecutive entries!`,
-      coinReward: recentPositiveStreak * 10,
-      emoji: '🌟'
-    });
-  }
-
-  // Balance achievement
-  if (positivePercentage >= 70 && entries.length >= 10) {
-    rewards.push({
-      type: 'balance_achievement',
-      title: 'Emotional Wellness Master',
-      description: `${positivePercentage}% of your recent entries show positive emotions!`,
-      coinReward: 50,
-      emoji: '🏆'
-    });
-  }
-
-  // Growth milestone
-  if (entries.length >= 30 && positivePercentage >= 60) {
-    rewards.push({
-      type: 'growth_milestone',
-      title: 'Journey Milestone',
-      description: 'You\'ve completed 30 journal entries with great emotional awareness!',
-      coinReward: 100,
-      emoji: '🌱'
-    });
-  }
-
-  // Consistency bonus
   if (entries.length >= 7) {
-    const lastWeek = entries.slice(-7);
-    const uniqueDays = new Set(lastWeek.map(e => new Date(e.date).toDateString())).size;
-    if (uniqueDays >= 7) {
-      rewards.push({
-        type: 'consistency_bonus',
-        title: 'Daily Journaling Champion',
-        description: 'You\'ve journaled every day this week!',
-        coinReward: 30,
-        emoji: '📔'
-      });
-    }
+    rewards.push({
+      type: 'consistency',
+      title: 'Consistent Journaler',
+      description: 'You\'ve written 7+ journal entries!',
+      emoji: '📝',
+      coinReward: 50
+    });
+  }
+
+  if (positivePercentage >= 70) {
+    rewards.push({
+      type: 'positivity',
+      title: 'Positive Mindset',
+      description: '70%+ of your entries show positive emotions!',
+      emoji: '🌟',
+      coinReward: 75
+    });
+  }
+
+  if (entries.length >= 30) {
+    rewards.push({
+      type: 'dedication',
+      title: 'Dedicated Writer',
+      description: 'Amazing! You\'ve written 30+ entries!',
+      emoji: '🏆',
+      coinReward: 100
+    });
   }
 
   return rewards;
 }
 
-function calculatePositiveStreak(entries: JournalEntry[]): number {
-  let streak = 0;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (categorizeMood(entries[i].mood) === 'positive') {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
-
-export function getMoodEmoji(mood: AnalyzedMood): string {
-  const moodEmojis: { [key in AnalyzedMood]: string } = {
+export function getMoodEmoji(mood: string): string {
+  const emojiMap: Record<string, string> = {
     happy: '😊',
-    excited: '🤗',
-    energetic: '⚡',
-    content: '😌',
     sad: '😢',
+    angry: '😠',
     anxious: '😰',
-    angry: '😡',
-    irritated: '😤',
-    frustrated: '😓',
-    calm: '🕯️'
+    excited: '🤩',
+    calm: '😌',
+    frustrated: '😤',
+    love: '🥰',
+    grateful: '🙏',
+    hopeful: '🌈',
+    lonely: '😔',
+    confused: '😕',
+    disappointed: '😞',
+    proud: '😎',
+    embarrassed: '😳',
+    bored: '😑',
+    overwhelmed: '🤯',
+    content: '😊',
+    energetic: '⚡',
+    guilt: '😔',
+    shame: '😞',
+    disgust: '🤢',
+    envy: '😒',
+    jealous: '😒',
+    nostalgic: '🥺'
   };
-  return moodEmojis[mood];
+  return emojiMap[mood] || '😐';
 }
 
-export function getMoodColor(mood: AnalyzedMood): string {
-  const category = categorizeMood(mood);
-  switch (category) {
-    case 'positive': return 'bg-green-100 text-green-700';
-    case 'negative': return 'bg-red-100 text-red-700';
-    case 'neutral': return 'bg-blue-100 text-blue-700';
-    default: return 'bg-gray-100 text-gray-700';
-  }
+export function getMoodColor(mood: string): string {
+  if (POSITIVE_MOODS.includes(mood)) return 'bg-green-100 text-green-800';
+  if (NEGATIVE_MOODS.includes(mood)) return 'bg-red-100 text-red-800';
+  return 'bg-gray-100 text-gray-800';
 }
