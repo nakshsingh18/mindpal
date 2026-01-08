@@ -21,6 +21,7 @@ import { TherapistDashboard } from './components/TherapistDashboard';
 import { TherapistScreen } from './components/TherapistScreen';
 import { HomeDashboard } from './components/HomeDashboard';
 import { UnifiedAuthScreen } from './components/UnifiedAuthScreen';
+import { ChatbotWidget } from './components/ChatbotWidget';
 import './styles/globals.css';
 
 
@@ -1782,5 +1783,10 @@ function AppDashboard() {
 }
 
 export default function App() {
-  return <AppRouter />;
+  return (
+    <>
+      <AppRouter />
+      <ChatbotWidget />
+    </>
+  );
 }

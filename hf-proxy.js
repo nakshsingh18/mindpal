@@ -13,7 +13,7 @@ app.post('/api/hf-proxy', async (req, res) => {
   try {
     const { model, text } = req.body;
 
-    const response = await fetch(
+    const response = await fetch( 
       `https://api-inference.huggingface.co/models/${model}`,
       {
         method: 'POST',
